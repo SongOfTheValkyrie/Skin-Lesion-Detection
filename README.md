@@ -1,4 +1,4 @@
-HAM10000 is already in the repository, please unzip it yourself.
+please download HAM1000: https://dataverse.harvard.edu/dataset.xhtml?persistentId=doi:10.7910/DVN/DBW86T
 
 Topic 1: Skin Lesion Detection
 0.3 Task:
