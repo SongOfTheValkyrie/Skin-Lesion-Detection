@@ -13,6 +13,8 @@ to classify lesions.
 
 Mobilev3 Architecture:
 - https://towardsdatascience.com/everything-you-need-to-know-about-mobilenetv3-and-its-comparison-with-previous-versions-a5d5e5a6eeaa
+
+Our MobileNetV3 Code is based on:
 - https://github.com/akrapukhin/MobileNetV3
 
 Interesting similar projects: 
