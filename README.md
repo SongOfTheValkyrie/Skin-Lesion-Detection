@@ -17,5 +17,5 @@ Mobilev3 Architecture:
 Our MobileNetV3 Code is based on:
 - https://github.com/akrapukhin/MobileNetV3
 
-Interesting similar projects: 
+Interesting Mobile Applications: 
 - https://github.com/mrinalTheCoder/ObjectDetectionApp
