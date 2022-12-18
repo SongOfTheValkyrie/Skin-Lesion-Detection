@@ -11,5 +11,8 @@ uncertainty.
 to classify lesions.
 ● Implement OOD detection.
 
+Mobilev3 Architecture:
+- https://towardsdatascience.com/everything-you-need-to-know-about-mobilenetv3-and-its-comparison-with-previous-versions-a5d5e5a6eeaa
+
 Interesting similar projects: 
 - https://github.com/mrinalTheCoder/ObjectDetectionApp
