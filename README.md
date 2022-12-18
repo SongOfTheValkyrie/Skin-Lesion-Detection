@@ -20,3 +20,4 @@ Our MobileNetV3 Code is based on:
 Interesting Mobile Applications: 
 - https://github.com/mrinalTheCoder/ObjectDetectionApp
 - https://github.com/tusharck/Object-Detector-Android-App-Using-PyTorch-Mobile-Neural-Network
+- https://towardsdatascience.com/object-detector-android-app-using-pytorch-mobile-neural-network-407c419b56cd
