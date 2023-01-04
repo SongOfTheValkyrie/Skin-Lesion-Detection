@@ -1,27 +1,32 @@
 package com.example.myapplication;
 
 import android.Manifest;
-import android.content.ContentValues;
-import android.content.Intent;
+import android.content.Context;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Matrix;
 import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.drawable.BitmapDrawable;
+import android.hardware.camera2.CameraAccessException;
+import android.hardware.camera2.CameraManager;
+import android.media.Image;
+import android.media.ImageReader;
 import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.ParcelFileDescriptor;
-import android.provider.MediaStore;
+import android.util.Size;
+import android.view.Surface;
 import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.TextView;
 
+import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
+import android.app.Fragment;
 
 import org.pytorch.IValue;
 import org.pytorch.Module;
@@ -29,17 +34,18 @@ import org.pytorch.Tensor;
 import org.pytorch.torchvision.TensorImageUtils;
 
 import java.io.File;
-import java.io.FileDescriptor;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.nio.ByteBuffer;
 import java.util.Arrays;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements ImageReader.OnImageAvailableListener {
 
     public static final int IMAGE_CAPTURE_CODE = 654;
 
+    FrameLayout imageFrameLayout;
     ImageView imageView;
     Button loadImage;
     Button detect;
@@ -47,7 +53,7 @@ public class MainActivity extends AppCompatActivity {
 
     Uri imageUri;
     Module module;
-    Bitmap image = null;
+    Bitmap curImage = null;
     int rectHeight;
     int rectWidth;
     float resizeRatio;
@@ -57,41 +63,62 @@ public class MainActivity extends AppCompatActivity {
 
     final String[] oneHotDecode = {"nv", "mel", "bkl", "bcc", "akiec", "df", "vasc"};
 
+    int previewHeight;
+    int previewWidth;
+    int[] rgbBytes;
+    int sensorOrientation;
+
+    boolean imageCaptured = false;
+
     private void openCamera() {
-        ContentValues values = new ContentValues();
-        values.put(MediaStore.Images.Media.TITLE, "New Picture");
-        values.put(MediaStore.Images.Media.DESCRIPTION, "From the Camera");
-        imageUri = getContentResolver().insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values);
-        Intent cameraIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
-        cameraIntent.putExtra(MediaStore.EXTRA_OUTPUT, imageUri);
-        startActivityForResult(cameraIntent, IMAGE_CAPTURE_CODE);
+        CameraManager manager = (CameraManager)getSystemService(Context.CAMERA_SERVICE);
+        String cameraId = null;
+        try {
+            cameraId = manager.getCameraIdList()[0];
+        } catch (CameraAccessException e) {
+            e.printStackTrace();
+        }
+        Fragment fragment;
+        CameraConnectionFragment camera2Fragment = CameraConnectionFragment.Companion.newInstance(
+                (CameraConnectionFragment.ConnectionCallback) (size, cameraRotation) -> {
+                    previewHeight = size.getHeight();
+                    previewWidth = size.getWidth();
+                    sensorOrientation = cameraRotation - getScreenOrientation();
+                },
+                this,
+                R.layout.fragment_camera_connection,
+                new Size(600, 600)
+        );
+        camera2Fragment.setCamera(cameraId);
+        fragment = camera2Fragment;
+        getFragmentManager().beginTransaction().replace(R.id.frame, fragment).commit();
+    }
+
+    protected Integer getScreenOrientation() {
+        switch (getWindowManager().getDefaultDisplay().getRotation()) {
+            case Surface.ROTATION_270:
+                return 270;
+            case Surface.ROTATION_180:
+                return 180;
+            case Surface.ROTATION_90:
+                return 90;
+            case Surface.ROTATION_0:
+                return 0;
+        }
+        return 0;
     }
 
     @Override
-    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
+    public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
 
-        if (requestCode == IMAGE_CAPTURE_CODE && resultCode == RESULT_OK){
-            image = uriToBitmap(imageUri);
-            Bitmap tempBitmap = Bitmap.createBitmap(image.getWidth(), image.getHeight(), Bitmap.Config.RGB_565);
-            Canvas canvas = new Canvas(tempBitmap);
-            Rect dst = new Rect();
-            dst.set(0, 0, image.getWidth(), image.getHeight());
-            System.out.println("AJUNGEM AICI");
-            canvas.drawBitmap(image, null, dst, null);
-            int h = image.getHeight();
-            int w = image.getWidth();
-            resizeRatio = Math.min(h / (float) inputHeight, w / (float) inputWidth);
-            rectHeight = (int)(inputHeight * resizeRatio);
-            rectWidth = (int)(inputWidth * resizeRatio);
-            int startX = (w / 2 - rectWidth / 2);
-            int startY = (h / 2 - rectHeight / 2);
-            Paint paint = new Paint();
-            paint.setStyle(Paint.Style.STROKE);
-            paint.setColor(Color.BLUE);
-            paint.setStrokeWidth(10);
-            canvas.drawRect(startX, startY, startX + rectWidth, startY + rectHeight, paint);
-            imageView.setImageDrawable(new BitmapDrawable(getResources(), tempBitmap));
+        if (requestCode == IMAGE_CAPTURE_CODE && grantResults.length > 0){
+            if (grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+                resultText.setText("");
+                openCamera();
+            } else {
+                resultText.setText("PLEASE GRANT CAMERA PERMISSIONS BY TOUCHING AREA ABOVE");
+            }
         }
     }
 
@@ -116,19 +143,13 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    private Bitmap uriToBitmap(Uri selectedFileUri) {
-        try {
-            ParcelFileDescriptor parcelFileDescriptor =
-                    getContentResolver().openFileDescriptor(selectedFileUri, "r");
-            FileDescriptor fileDescriptor = parcelFileDescriptor.getFileDescriptor();
-            Bitmap image = BitmapFactory.decodeFileDescriptor(fileDescriptor);
-
-            parcelFileDescriptor.close();
-            return image;
-        } catch (IOException e) {
-            e.printStackTrace();
+    private void requestAppPermissions() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED) {
+                String[] permission = {Manifest.permission.CAMERA};
+                requestPermissions(permission, IMAGE_CAPTURE_CODE);
+            }
         }
-        return  null;
     }
 
     @Override
@@ -136,6 +157,7 @@ public class MainActivity extends AppCompatActivity {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
 
+        imageFrameLayout = (FrameLayout)findViewById(R.id.frame);
         imageView = (ImageView)findViewById(R.id.image);
         loadImage = (Button)findViewById(R.id.button);
         detect = (Button)findViewById(R.id.detect);
@@ -143,46 +165,158 @@ public class MainActivity extends AppCompatActivity {
 
         module = Module.load(assetFilePath("ham10k_optimized.pt"));
 
-        loadImage.setOnClickListener(view -> {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                if (checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED/* ||
-                       checkSelfPermission(Manifest.permission.WRITE_EXTERNAL_STORAGE) == PackageManager.PERMISSION_DENIED*/) {
-                    String[] permission = {Manifest.permission.CAMERA};
-                    requestPermissions(permission, 112);
-                } else {
-                    openCamera();
-                }
-            } else {
-                openCamera();
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)
+            openCamera();
+        else
+            requestAppPermissions();
+
+        imageView.setOnClickListener(view -> {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && checkSelfPermission(Manifest.permission.CAMERA) == PackageManager.PERMISSION_DENIED) {
+                requestAppPermissions();
             }
         });
 
+        loadImage.setOnClickListener(view -> {
+            if (!imageCaptured) {
+                loadImage.setText("Take Another Image");
+            } else {
+                loadImage.setText("Capture Image");
+            }
+            imageCaptured = !imageCaptured;
+        });
 
         detect.setOnClickListener(view -> {
-            if (image != null) {
-                int h = image.getHeight();
-                int w = image.getWidth();
-                int startX = (w / 2 - rectWidth / 2);
-                int startY = (h / 2 - rectHeight / 2);
-                Bitmap centerPart = Bitmap.createBitmap(image, startX, startY, rectWidth, rectHeight);
-                Matrix m = new Matrix();
-                m.postScale(1.f / resizeRatio, 1.f / resizeRatio);
-                Bitmap resized = Bitmap.createBitmap(centerPart, 0, 0, inputWidth, inputHeight, m, false);
-                centerPart.recycle();
-                Tensor inputTensor = TensorImageUtils.bitmapToFloat32Tensor(resized,
-                        TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB);
-                System.out.println("Doing forward pass...");
-                float[] out = module.forward(IValue.from(inputTensor)).toTensor().getDataAsFloatArray();
-                int maxPos = 0;
-                float maxVal = 0;
-                for (int i = 0; i < out.length; i++) {
-                    if (out[i] > maxVal) {
-                        maxVal = out[i];
-                        maxPos = i;
+            if (curImage != null && imageCaptured) {
+                Thread t = new Thread(() -> {int h = curImage.getHeight();
+                    int w = curImage.getWidth();
+                    int startX = (w / 2 - rectWidth / 2);
+                    int startY = (h / 2 - rectHeight / 2);
+                    Bitmap centerPart = Bitmap.createBitmap(curImage, startX, startY, rectWidth, rectHeight);
+                    Matrix m = new Matrix();
+                    m.postScale(1.f / resizeRatio, 1.f / resizeRatio);
+                    Bitmap resized = Bitmap.createBitmap(centerPart, 0, 0, rectWidth, rectHeight, m, false);
+                    System.out.println("RISAIZ " + resized.getHeight() + " " + resized.getWidth());
+                    centerPart.recycle();
+                    Tensor inputTensor = TensorImageUtils.bitmapToFloat32Tensor(resized,
+                            TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB);
+                    System.out.println(Arrays.toString(inputTensor.shape()));
+                    runOnUiThread(() -> {
+                        resultText.setText("Analyzing...");
+                    });
+                    float[] out = module.forward(IValue.from(inputTensor)).toTensor().getDataAsFloatArray();
+                    int maxPos = 0;
+                    float maxVal = 0;
+                    for (int i = 0; i < out.length; i++) {
+                        if (out[i] > maxVal) {
+                            maxVal = out[i];
+                            maxPos = i;
+                        }
                     }
-                }
-                resultText.setText(oneHotDecode[maxPos]);
+                    int finalMaxPos = maxPos;
+                    runOnUiThread(() -> {
+                        resultText.setText(oneHotDecode[finalMaxPos]);
+                    });
+                });
+                t.start();
             }
         });
+    }
+
+    private boolean isProcessingFrame = false;
+    private byte[][] yuvBytes = {null, null, null};
+    private int yRowStride = 0;
+    private Runnable imageConverter;
+    private Runnable postInferenceCallback;
+
+    @Override
+    public void onImageAvailable(ImageReader reader) {
+        // We need wait until we have some size from onPreviewSizeChosen
+        if (previewWidth == 0 || previewHeight == 0) {
+            return;
+        }
+        if (rgbBytes == null) {
+            rgbBytes = new int[previewWidth * previewHeight];
+        }
+        try {
+            Image image = reader.acquireLatestImage();
+            if (image == null)
+                return;
+            if (isProcessingFrame) {
+                image.close();
+                return;
+            }
+            isProcessingFrame = true;
+            Image.Plane[] planes = image.getPlanes();
+            fillBytes(planes, yuvBytes);
+            yRowStride = planes[0].getRowStride();
+            int uvRowStride = planes[1].getRowStride();
+            int uvPixelStride = planes[1].getPixelStride();
+            imageConverter = () -> {
+                ImageUtils.INSTANCE.convertYUV420ToARGB8888(
+                        yuvBytes[0],
+                        yuvBytes[1],
+                        yuvBytes[2],
+                        previewWidth,
+                        previewHeight,
+                        yRowStride,
+                        uvRowStride,
+                        uvPixelStride,
+                        rgbBytes
+                );
+            };
+            postInferenceCallback = () -> {
+                image.close();
+                isProcessingFrame = false;
+            };
+            processImage();
+        } catch (Exception e){
+            e.printStackTrace();
+            return;
+        }
+    }
+
+
+    private void processImage() {
+        imageConverter.run();
+        Bitmap rgbFrameBitmap = Bitmap.createBitmap(previewWidth, previewHeight, Bitmap.Config.ARGB_8888);
+        rgbFrameBitmap.setPixels(rgbBytes, 0, previewWidth, 0, 0, previewWidth, previewHeight);
+        if (imageView != null && !imageCaptured) {
+            Matrix rotationMatrix = new Matrix();
+            rotationMatrix.setRotate((float)sensorOrientation);
+            curImage =  Bitmap.createBitmap(rgbFrameBitmap, 0, 0, rgbFrameBitmap.getWidth(), rgbFrameBitmap.getHeight(), rotationMatrix, true);
+
+            Bitmap tempBitmap = Bitmap.createBitmap(curImage.getWidth(), curImage.getHeight(), Bitmap.Config.RGB_565);
+            Canvas canvas = new Canvas(tempBitmap);
+            Rect dst = new Rect();
+            dst.set(0, 0, curImage.getWidth(), curImage.getHeight());
+            canvas.drawBitmap(curImage, null, dst, null);
+            int h = tempBitmap.getHeight();
+            int w = tempBitmap.getWidth();
+            resizeRatio = Math.min(h / (float) inputHeight, w / (float) inputWidth);
+            rectHeight = (int)(inputHeight * resizeRatio);
+            rectWidth = (int)(inputWidth * resizeRatio);
+            int startX = (w / 2 - rectWidth / 2);
+            int startY = (h / 2 - rectHeight / 2);
+            Paint paint = new Paint();
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setColor(Color.BLUE);
+            paint.setStrokeWidth(10);
+            canvas.drawRect(startX, startY, startX + rectWidth, startY + rectHeight, paint);
+
+            runOnUiThread(() -> {
+                imageView.setBackground(new BitmapDrawable(getResources(), tempBitmap));
+            });
+        }
+        postInferenceCallback.run();
+    }
+
+    private static void fillBytes(final Image.Plane[] planes, final byte[][] yuvBytes) {
+        for (int i = 0; i < planes.length; ++i) {
+            final ByteBuffer buffer = planes[i].getBuffer();
+            if (yuvBytes[i] == null || yuvBytes[i].length != buffer.capacity()) {
+                yuvBytes[i] = new byte[buffer.capacity()];
+            }
+            buffer.get(yuvBytes[i]);
+        }
     }
 }
