@@ -1,4 +1,5 @@
 import torch
+import torch.nn as nn
 from models import Mobilenet_v3_large
 import csv
 from PIL import Image
@@ -64,6 +65,9 @@ class ham10k_test:
                 img = transforms.ToTensor()(pil_img)
             predicted = model.forward(img[None, :])
             return golden,np.argmax(predicted)
+    
+    def MC_Dropout(self,model):
+        pass
 
 
 one_hot_dict = {
@@ -82,7 +86,7 @@ model,imgs,label=hamtest.load_model_and_images()
 predicted_var=[]
 actual=[]
 preds=[]
-#monte carlo dropout
+
 for i in range(3):
     golden,predicted=(hamtest.predict(imgs[i],label,model))
     predicted_var.append(one_hot_dict[int(predicted)])
