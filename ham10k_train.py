@@ -1,5 +1,8 @@
 import torch
-from models import Mobilenet_v3_large
+from torchvision.models import mobilenet_v3_small
+from torchvision.models import mobilenet_v3_large
+from torchvision.models.mobilenetv3 import MobileNet_V3_Small_Weights
+from torchvision.models.mobilenetv3 import MobileNet_V3_Large_Weights 
 import csv
 from PIL import Image
 from torchvision import transforms
@@ -7,14 +10,22 @@ import os
 import numpy as np
 from sklearn.model_selection import train_test_split
 import torchsummary
+import math
+from time import time
+from datetime import timedelta
 from ham10k_test import ham10k_test
 
-#torch.set_default_tensor_type(torch.cuda.FloatTensor)
+# !!! change useCuda to False to run un CPU (if program crashes) !!!
+useCuda = True
+
+if useCuda:
+    torch.set_default_tensor_type(torch.cuda.FloatTensor)
+
 imgs_paths = ['HAM10000/HAM10000_images/']
 labels_path = 'HAM10000/HAM10000_metadata'
-hamtest=ham10k_test()
+hamtest = ham10k_test()
 
-batch_size=8
+batch_size = 32
 #diagnostic categories
 one_hot_dict = {
     'nv' : torch.Tensor([1, 0, 0, 0, 0, 0, 0]), #melanocytic nevi
@@ -25,9 +36,10 @@ one_hot_dict = {
     'df' : torch.Tensor([0, 0, 0, 0, 0, 1, 0]), #dermatofibroma
     'vasc' : torch.Tensor([0, 0, 0, 0, 0, 0, 1]) # vascular lesions (angiomas, angiokeratomas, pyogenic granulomas and hemorrhage
 }
-n_epochs = 5
+n_epochs = 150
 
-def img_batches(imgs_paths, labels):
+def img_batches(imgs_paths, labels_path, num_batches):
+    num_batches_yielded = 0
     
     with open(labels_path, 'r') as labels_file:
         labels = {row['image_id'] : row['dx'] for row in csv.DictReader(labels_file)}
@@ -38,72 +50,63 @@ def img_batches(imgs_paths, labels):
         for file in os.listdir(imgs_path):
             with Image.open(imgs_path + file) as pil_img:
                 img = transforms.ToTensor()(pil_img)
-                #print(img.shape)
+                if useCuda:
+                    img = img.cuda()
             batch_imgs.append(img[None, :])
             batch_labels.append(one_hot_dict[labels[file.split('.')[0]]][None, :])
-            """if len(batch_imgs) =:
+            if len(batch_imgs) == batch_size:
                 yield torch.cat(batch_imgs, 0), torch.cat(batch_labels, 0)
+                num_batches_yielded += 1
+                if num_batches_yielded == num_batches:
+                    return
+                
                 batch_imgs = []
-                batch_labels = []"""
-    return batch_imgs,batch_labels
+                batch_labels = []
+    if len(batch_imgs) != 0:
+        yield torch.cat(batch_imgs, 0), torch.cat(batch_labels, 0)
 
 print('Loading model...')
-model = Mobilenet_v3_large()
-try:
-    model.load_state_dict(torch.load('trained_models/Mobilenet_v3_large_1.0_fortest.pth'))
-except:
-    model.load_state_dict(torch.load('trained_models/Mobilenet_v3_large_1.0_fortest.pth',map_location='cpu'))
-
-torchsummary.summary(model, input_size=(3, 450, 600), device='cpu',batch_size=1)
+model = mobilenet_v3_small(weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1)
 
 for param in model.parameters():
     param.requires_grad = False
 
-model.conv_4 = torch.nn.Sequential(
-    torch.nn.Conv2d(1280, 7, 1),
+model.classifier[-1] = torch.nn.Sequential(
+    torch.nn.Linear(1024, 7),
     torch.nn.Softmax()
 )
+
+#torchsummary.summary(model, input_size=(3, 450, 600), device='cpu',batch_size=1)
 
 criterion = torch.nn.CrossEntropyLoss()
 optimizer = torch.optim.SGD(model.parameters(), lr = 0.1, momentum = 0.9)
 scheduler = torch.optim.lr_scheduler.MultiStepLR(optimizer, milestones=[15, 20, 30], gamma=0.1)
 
-with open(labels_path, 'r') as labels_file:
-        labels_dict = {row['image_id'] : row['dx'] for row in csv.DictReader(labels_file)}
-
-#separate test and train sets. 
-batch, labels=img_batches(imgs_paths, labels_dict) 
-percent_train=round(len(batch)/100*90)
-batch_train=batch[0:percent_train]
-batch_test=batch[percent_train:]
-
-label_train=labels[0:percent_train]
-label_test=labels[percent_train:]
-
+#separate test and train sets.
+num_images = len([1 for imgs_path in imgs_paths for _ in os.listdir(imgs_path)])
+num_batches = math.ceil(num_images / batch_size)
+num_train = math.ceil(num_batches * 0.9)
 
 for epoch in range(1, n_epochs + 1):
     train_losses = []
-    for count in range(1,len(batch_train)+1):
-        if count%batch_size==0:
-            model.zero_grad()
-            #, torch.cat(batch_labels, 0)
-            _batch=batch_train[count-batch_size:count]
-            _label=label_train[count-batch_size:count]
-            underbatch=torch.cat(_batch, 0)
-            underlabel=torch.cat(_label, 0)
-            out = model.forward(underbatch)
-            #print(out.shape)
-            #print(labels.shape)
-            loss = criterion(out, torch.max(underlabel, 1)[1])
-            print(loss.item())
-            loss.backward()
-            optimizer.step()
-            train_losses.append(loss.item())
-    scheduler.step()
     
-    print(f'Epoch: {epoch}, Loss: {np.mean(train_losses)}')
+    nr_batches = 0
+    epoch_start = time()
+    for batch, label in img_batches(imgs_paths, labels_path, num_train):
+        nr_batches += 1
+        model.zero_grad()
+        out = model.forward(batch)
+        loss = criterion(out, label)
+        loss.backward()
+        optimizer.step()
+        train_losses.append(loss.item())
+    print(nr_batches)
+    scheduler.step()
+    epoch_end = time()
+    
+    print(f'Epoch: {epoch}, Loss: {np.mean(train_losses)}, Elapsed time: {timedelta(seconds = epoch_end - epoch_start)}')
 
-torch.save(model.state_dict(), "/kaggle/working/ham10k_trained.pth")
+torch.save(model.state_dict(), "trained_models/ham10k_trained.pth")
 
 #include test
-hamtest.test(batch_test,label_test)
+hamtest.test()
