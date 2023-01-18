@@ -61,7 +61,14 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
     final int inputHeight = 600;
     final int inputWidth = 450;
 
-    final String[] oneHotDecode = {"nv", "mel", "bkl", "bcc", "akiec", "df", "vasc"};
+    final String[] oneHotDecode = {
+            "melanocytic nevi",
+            "melanoma",
+            "benign keratosis-like lesion",
+            "basal cell carcinoma",
+            "bowen's disease",
+            "dermatofibroma",
+            "vascular lesion"};
 
     int previewHeight;
     int previewWidth;
@@ -177,6 +184,9 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
         });
 
         loadImage.setOnClickListener(view -> {
+            if (resultText.getText() == "Analyzing...")
+                return;
+            resultText.setText("");
             if (!imageCaptured) {
                 loadImage.setText("Take Another Image");
             } else {
@@ -195,15 +205,14 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
                     Matrix m = new Matrix();
                     m.postScale(1.f / resizeRatio, 1.f / resizeRatio);
                     Bitmap resized = Bitmap.createBitmap(centerPart, 0, 0, rectWidth, rectHeight, m, false);
-                    System.out.println("RISAIZ " + resized.getHeight() + " " + resized.getWidth());
                     centerPart.recycle();
                     Tensor inputTensor = TensorImageUtils.bitmapToFloat32Tensor(resized,
                             TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB);
-                    System.out.println(Arrays.toString(inputTensor.shape()));
                     runOnUiThread(() -> {
                         resultText.setText("Analyzing...");
                     });
                     float[] out = module.forward(IValue.from(inputTensor)).toTensor().getDataAsFloatArray();
+                    System.out.println("Result vector is: " + Arrays.toString(out));
                     int maxPos = 0;
                     float maxVal = 0;
                     for (int i = 0; i < out.length; i++) {
