@@ -24,10 +24,10 @@ class ham10k_test:
         0:'nv', 
         1:'mel',
         2:'bkl',
-        4:'bcc',
-        5:'akiec',
-        6:'df',
-        7:'vasc'
+        3:'bcc',
+        4:'akiec',
+        5:'df',
+        6:'vasc'
     }
 
     #test directly after training
@@ -57,6 +57,10 @@ class ham10k_test:
             torch.nn.Softmax()
         )
         model.load_state_dict(torch.load('trained_models/ham10k_trained.pth'))
+        model.eval()
+        for m in model.modules():
+            if m.__class__.__name__.startswith('Dropout'):
+                m.train()
 
         #load all HAMM images
         all_imgs = [file for file in os.listdir(imgs_paths)]
@@ -68,12 +72,12 @@ class ham10k_test:
         all_imgs = all_imgs[percent_train :]
         return model, all_imgs,labels
     
-    def predict(self,img,label,model):
+    def predict(self, img_path, label,model):
         #random_img_path = img_path[random.randint(0, len(img_path) - 1)]
-        golden = label[img.split('.')[0]]
+        golden = label[img_path.split('.')[0]]
 
         with torch.no_grad():
-            with Image.open(imgs_paths + img) as pil_img:
+            with Image.open(imgs_paths + img_path) as pil_img:
                 img = transforms.ToTensor()(pil_img)
                 if useCuda:
                     img = img.cuda()

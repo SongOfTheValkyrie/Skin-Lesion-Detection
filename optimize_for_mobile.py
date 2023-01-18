@@ -12,10 +12,15 @@ model.classifier[-1] = torch.nn.Sequential(
 )
 model.load_state_dict(torch.load("trained_models/ham10k_trained.pth"))
 model.eval()
-    
+
+# This doesn't work, need to find way to enable dropout on mobile
+for m in model.modules():
+        if m.__class__.__name__.startswith('Dropout'):
+            m.train()
+
 X = torch.distributions.uniform.Uniform(-10000, 10000).sample((1, 3, 450, 600))
     
 traced_script_module = torch.jit.trace(model, X)
 traced_script_module_optimized = optimize_for_mobile(traced_script_module)
     
-traced_script_module_optimized.save("trained_models/ham10k_optimized.pt")
+traced_script_module_optimized.save("trained_models/ham10k_optimized_dropout.pt")

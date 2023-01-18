@@ -36,7 +36,7 @@ one_hot_dict = {
     'df' : torch.Tensor([0, 0, 0, 0, 0, 1, 0]), #dermatofibroma
     'vasc' : torch.Tensor([0, 0, 0, 0, 0, 0, 1]) # vascular lesions (angiomas, angiokeratomas, pyogenic granulomas and hemorrhage
 }
-n_epochs = 150
+n_epochs = 60
 
 def img_batches(imgs_paths, labels_path, num_batches):
     num_batches_yielded = 0
