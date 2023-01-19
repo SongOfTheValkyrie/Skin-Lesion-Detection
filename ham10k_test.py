@@ -20,6 +20,9 @@ labels_path = 'HAM10000/HAM10000_metadata'
 imgs_paths = 'HAM10000/HAM10000_images/'
 
 class ham10k_test:
+    def __init__(self, num_mc_passes):
+        self.num_mc_passes = num_mc_passes
+    
     one_hot_dict = {
         0:'nv', 
         1:'mel',
@@ -40,10 +43,11 @@ class ham10k_test:
         preds=[]
 
         for i, img in enumerate(imgs):
-            golden,predicted = self.predict(img, label, model)
-            predicted_var.append(self.one_hot_dict[predicted])
+            golden, predicted, _ = self.predict(img, label, model)
+            predicted_var.append(self.one_hot_dict[torch.argmax(predicted).item()])
             actual.append(golden)
             preds.append(predicted)
+            print(f"Expected: {golden}, Predicted: {predicted_var[i]}, Certainty: {torch.max(predicted):.2f}")
             acc = np.sum(np.array(actual) == np.array(predicted_var)) / len(actual)
             if (i + 1) % 10 == 0:
                 print(f"Accuracy for first {i + 1} test images: {acc * 100:.2f}%")
@@ -72,7 +76,7 @@ class ham10k_test:
         all_imgs = all_imgs[percent_train :]
         return model, all_imgs,labels
     
-    def predict(self, img_path, label,model):
+    def predict(self, img_path, label, model):
         #random_img_path = img_path[random.randint(0, len(img_path) - 1)]
         golden = label[img_path.split('.')[0]]
 
@@ -81,12 +85,14 @@ class ham10k_test:
                 img = transforms.ToTensor()(pil_img)
                 if useCuda:
                     img = img.cuda()
-            predicted = model.forward(img[None, :])
-            return golden, torch.argmax(predicted).item()
-    
-    def MC_Dropout(self,model):
-        pass
+            
+            predictions = []
+            for i in range(self.num_mc_passes):
+                predicted = model.forward(img[None, :])
+                predictions.append(predicted)
+            predictions = torch.cat(predictions)
+            return golden, torch.mean(predictions, dim = 0), torch.var(predictions, dim = 0)
 
 if __name__ == '__main__':
-    hamtest = ham10k_test()
+    hamtest = ham10k_test(10)
     hamtest.test()
