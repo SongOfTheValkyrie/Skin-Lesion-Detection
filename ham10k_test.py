@@ -69,6 +69,7 @@ class ham10k_test:
             torch.nn.Hardswish(inplace = True),
             torch.nn.Dropout(p = 0.2, inplace = True),
             torch.nn.Linear(1024, 7),
+            torch.nn.Softmax()
         )
         model.load_state_dict(torch.load('trained_models/ham10k_trained.pth'))
         model.eval()

@@ -96,6 +96,7 @@ model.classifier = torch.nn.Sequential(
     torch.nn.Hardswish(inplace = True),
     torch.nn.Dropout(p = 0.2, inplace = True),
     torch.nn.Linear(1024, 7),
+    torch.nn.Softmax()
 )
 
 #torchsummary.summary(model, input_size=(3, 450, 600), device='cpu',batch_size=1)
