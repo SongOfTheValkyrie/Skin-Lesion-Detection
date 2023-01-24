@@ -174,6 +174,7 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
         Matrix m = new Matrix();
         m.postScale(1.f / resizeRatio, 1.f / resizeRatio);
         Bitmap resized = Bitmap.createBitmap(centerPart, 0, 0, rectWidth, rectHeight, m, false);
+        System.out.println("SIZE OF BITMAP IS: " + resized.getHeight() + " " + resized.getWidth());
         centerPart.recycle();
         return TensorImageUtils.bitmapToFloat32Tensor(resized,
                 TensorImageUtils.TORCHVISION_NORM_MEAN_RGB, TensorImageUtils.TORCHVISION_NORM_STD_RGB);
@@ -296,8 +297,13 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
                     Tensor feature = module_feature.forward(IValue.from(inputTensor)).toTensor();
                     float confidence = rmd_confidence(vecToMatrix(feature.getDataAsFloatArray()), mean_feature_maps, mean_feature_map_0, covar_inverse, covar_0_inverse);
 
-                    if (imageCaptured)
-                        resultText.setText("ID confidence score: "  + String.format("%.02f", confidence));
+                    if (imageCaptured) {
+                        System.out.println("IND confidence score: " + String.format("%.02f", confidence));
+                        if (confidence < 0.f)
+                            resultText.setText("Image doesn't seem to depict a lesion");
+                        else
+                            resultText.setText("Image looks good");
+                    }
                 });
                 t.start();
             } else {

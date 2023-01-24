@@ -29,12 +29,12 @@
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:text=""
-        android:textSize="20dp"
-        android:textStyle="bold"
-        android:textAllCaps="true"
         android:textAlignment="center"
-        app:layout_constraintTop_toTopOf="@id/button"
-        app:layout_constraintBottom_toBottomOf="@+id/image" />
+        android:textAllCaps="true"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        app:layout_constraintBottom_toBottomOf="@+id/image"
+        app:layout_constraintTop_toTopOf="@id/button" />
 
     <Button
         android:id="@+id/button"
