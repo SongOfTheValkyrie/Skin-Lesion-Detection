@@ -18,7 +18,7 @@ if useCuda:
     torch.set_default_tensor_type(torch.cuda.FloatTensor)
 
 labels_path = 'HAM10000/HAM10000_metadata'
-imgs_paths = 'HAM10000/HAM10000_images/'
+imgs_paths = ['HAM10000/HAM10000_images/']
 
 class ham10k_test:
     def __init__(self, num_mc_passes):
@@ -30,35 +30,53 @@ class ham10k_test:
         self.num_mc_passes = num_mc_passes
     
     one_hot_dict = {
-        0:'nv', 
-        1:'mel',
-        2:'bkl',
-        3:'bcc',
-        4:'akiec',
-        5:'df',
-        6:'vasc'
+        'nv' : 0, 
+        'mel' : 1,
+        'bkl' : 2,
+        'bcc' : 3,
+        'akiec' : 4,
+        'df' : 5,
+        'vasc' : 6
     }
+    
+    conf = torch.zeros(7, 7)
 
     #test directly after training
     def test(self):
-        model, imgs, label = self.load_model_and_images()
+        model, imgs, labels = self.load_model_and_images()
         print(f"Testing on last {len(imgs)} images")
 
-        predicted_var=[]
-        actual=[]
-        preds=[]
         confidences=[]
-
-        for i, img in enumerate(imgs):
+        i = 0
+        for img, label in zip(imgs, labels):
             golden, predicted, rmd_confidence = self.predict(img, label, model)
-            predicted_var.append(self.one_hot_dict[torch.argmax(predicted).item()])
-            actual.append(golden)
-            preds.append(predicted)
+            
+            predicted = torch.argmax(predicted).item()
+            actual = self.one_hot_dict[golden]
             confidences.append(rmd_confidence)
+            
+            self.conf[actual, predicted] += 1
+            
             #print(f"Expected: {golden:5}, Predicted: {predicted_var[i]:5}, Certainty: {torch.max(predicted):.2f}, In-distribution confidence: {rmd_confidence:.2f}")
             if (i + 1) % 10 == 0:
-                acc = np.sum(np.array(actual) == np.array(predicted_var)) / len(actual)
-                print(f"First {i + 1} images: Acc={acc * 100:.2f} Avg_confidence={np.mean(confidences)}")
+                acc = torch.sum(torch.diag(self.conf)) / torch.sum(self.conf)
+                print(f"First {i + 1} images: Acc={acc * 100:.2f}% Avg_confidence={np.mean(confidences)}")
+            i += 1
+    
+        precision = np.zeros(7)
+        recall = np.zeros(7)
+    
+        for i in range(7):
+            if self.conf[i, i] == 0:
+                precision[i] = 0
+                recall[i] = 0
+            else:
+                precision[i] = self.conf[i, i] / torch.sum(self.conf[:, i])
+                recall[i] = self.conf[i, i] / torch.sum(self.conf[i, :])
+        
+        for i in self.one_hot_dict:
+            ind = self.one_hot_dict[i]
+            print(f"{i}: Precision {precision[ind]:.2f}, Recall {recall[ind]:.2f}")
 
 
     def load_model_and_images(self):
@@ -78,14 +96,20 @@ class ham10k_test:
                 m.train()
 
         #load all HAMM images
-        all_imgs = [file for file in os.listdir(imgs_paths)]
         with open(labels_path, 'r') as labels_file:
             labels = {row['image_id'] : row['dx'] for row in csv.DictReader(labels_file)}
+            
+        all_imgs = []
+        all_labels = []
+        for imgs_path in imgs_paths:
+            all_imgs = all_imgs + [imgs_path + file for file in os.listdir(imgs_path)]
+            all_labels = all_labels + [labels[file.split('.')[0]] for file in os.listdir(imgs_path)]             
 
         percent_train = round(len(all_imgs) * 0.9)
         
         all_imgs = all_imgs[percent_train :]
-        return model, all_imgs,labels
+        all_labels = all_labels[percent_train :]
+        return model, all_imgs, all_labels
     
     def mahalanobis_distance(self, feature_map, mean_feature_map, covar_inverse):
         adjusted_feature_map = (feature_map - mean_feature_map)[None, :]
@@ -108,12 +132,11 @@ class ham10k_test:
         x = model.classifier(z)
         return x, z
     
-    def predict(self, img_path, label, model):
+    def predict(self, img_path, golden, model):
         #random_img_path = img_path[random.randint(0, len(img_path) - 1)]
-        golden = label[img_path.split('.')[0]]
 
         with torch.no_grad():
-            with Image.open(imgs_paths + img_path) as pil_img:
+            with Image.open(img_path) as pil_img:
                 img = transforms.ToTensor()(pil_img)
                 if useCuda:
                     img = img.cuda()
