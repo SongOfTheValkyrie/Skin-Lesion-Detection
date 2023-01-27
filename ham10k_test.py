@@ -105,10 +105,11 @@ class ham10k_test:
             all_imgs = all_imgs + [imgs_path + file for file in os.listdir(imgs_path)]
             all_labels = all_labels + [labels[file.split('.')[0]] for file in os.listdir(imgs_path)]             
 
-        percent_train = round(len(all_imgs) * 0.9)
+        percent_train = round(len(all_imgs) * 0.8)
+        percent_dev = round((len(all_imgs) - percent_train) / 2)
         
-        all_imgs = all_imgs[percent_train :]
-        all_labels = all_labels[percent_train :]
+        all_imgs = all_imgs[percent_train + percent_dev :]
+        all_labels = all_labels[percent_train + percent_dev :]
         return model, all_imgs, all_labels
     
     def mahalanobis_distance(self, feature_map, mean_feature_map, covar_inverse):

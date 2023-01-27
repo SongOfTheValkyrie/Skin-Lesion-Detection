@@ -35,7 +35,9 @@ one_hot_dict = {
     'df' : torch.Tensor([0, 0, 0, 0, 0, 1, 0]), #dermatofibroma
     'vasc' : torch.Tensor([0, 0, 0, 0, 0, 0, 1]) # vascular lesions (angiomas, angiokeratomas, pyogenic granulomas and hemorrhage
 }
-n_epochs = 20
+n_epochs = 100
+patience = 5
+epsilon = 0.005
 
 def load_trainset(imgs_paths, labels_path, train_percentage):
     with open(labels_path, 'r') as labels_file:
@@ -49,7 +51,8 @@ def load_trainset(imgs_paths, labels_path, train_percentage):
             labels.append(img_to_label[file.split('.')[0]])
     
     train_num = round(len(imgs) * train_percentage)
-    return np.array(imgs[: train_num]), np.array(labels[: train_num])
+    dev_num = round((len(imgs) - train_num) / 2)
+    return np.array(imgs[: train_num]), np.array(labels[: train_num]), np.array(imgs[train_num : train_num + dev_num]), np.array(labels[train_num : train_num + dev_num])
 
 def balance_trainset(imgs, labels):
     class_imgs = {}
@@ -111,6 +114,16 @@ def save_tensor(x, file_path):
             for j in range(x.shape[1]):
                 f.write(f"{x[i, j]}\n")
 
+def calculate_loss(imgs, labels):
+    with torch.no_grad():
+        losses = []
+        for batch, label in img_batches(imgs, labels):
+            out, _ = forward(model, batch)
+            loss = criterion(out, label)
+            losses.append(loss.item())
+        return np.mean(losses)
+            
+
 print('Loading model...')
 model = mobilenet_v3_small(weights = MobileNet_V3_Small_Weights.IMAGENET1K_V1)
 
@@ -139,7 +152,7 @@ covar = torch.zeros((576, 576))
 covar_0 = torch.zeros((576, 576))
 
 # load train set
-imgs, labels = load_trainset(imgs_paths, labels_path, 0.9)
+imgs, labels, dev_imgs, dev_labels = load_trainset(imgs_paths, labels_path, 0.8)
 
 
 with torch.no_grad():
@@ -181,6 +194,8 @@ with torch.no_grad():
 imgs, labels = balance_trainset(imgs, labels)
 
 print("Training model...")
+epochs_without_change = 0
+last_dev_loss = 0
 for epoch in range(1, n_epochs + 1):
     train_losses = []
     indices = np.arange(imgs.shape[0])
@@ -204,7 +219,13 @@ for epoch in range(1, n_epochs + 1):
     scheduler.step()
     epoch_end = time()
     
-    print(f'Epoch: {epoch}, Loss: {np.mean(train_losses)}, Elapsed time: {timedelta(seconds = epoch_end - epoch_start)}')
+    dev_loss = calculate_loss(dev_imgs, dev_labels)
+    print(f'Epoch: {epoch}, Train loss: {np.mean(train_losses)}, Dev loss: {dev_loss}, Elapsed time: {timedelta(seconds = epoch_end - epoch_start)}')
+    if abs(dev_loss - last_dev_loss) <= epsilon:
+        epochs_without_change += 1
+    if epochs_without_change == patience:
+        break
+    last_dev_loss = dev_loss
 
 torch.save(model.state_dict(), "trained_models/ham10k_trained.pth")
 
