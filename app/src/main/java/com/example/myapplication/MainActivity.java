@@ -43,6 +43,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.ByteBuffer;
+import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.Arrays;
 
@@ -55,6 +57,7 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
     Button loadImage;
     Button detect;
     TextView resultText;
+    TextView resultText2;
 
     Uri imageUri;
     Module module_feature;
@@ -138,7 +141,14 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
     public String assetFilePath(String assetName) {
         File file = new File(this.getFilesDir(), assetName);
         if (file.exists() && file.length() > 0) {
-            return file.getAbsolutePath();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                try {
+                    Files.write(file.toPath(), new byte[0], StandardOpenOption.TRUNCATE_EXISTING);
+                } catch (IOException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+            //return file.getAbsolutePath();
         }
 
         try (InputStream is = this.getAssets().open(assetName)) {
@@ -268,6 +278,8 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
         loadImage = (Button)findViewById(R.id.button);
         detect = (Button)findViewById(R.id.detect);
         resultText = (TextView)findViewById(R.id.result_text);
+        resultText2 = (TextView)findViewById(R.id.result_text2);
+
         module_feature = Module.load(assetFilePath("ham10k_feature_mobile.pt"));
         module_classify = Module.load(assetFilePath("ham10k_classify_mobile.pt"));
         float[][] mean_feature_map_0 = readMatrix(assetFilePath("mean_feature_map_0.matrix"));
@@ -290,6 +302,7 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
             if (resultText.getText() == "Analyzing...")
                 return;
             resultText.setText("");
+            resultText2.setText("");
             if (!imageCaptured) {
                 loadImage.setText("Take Another Image");
                 Thread t = new Thread(() -> {
@@ -321,19 +334,40 @@ public class MainActivity extends AppCompatActivity implements ImageReader.OnIma
                     });
                     Tensor feature = module_feature.forward(IValue.from(inputTensor)).toTensor();
                     System.out.println(Arrays.toString(feature.shape()));
-                    float[] out = module_classify.forward(IValue.from(feature)).toTensor().getDataAsFloatArray();
-                    System.out.println("Result vector is: " + Arrays.toString(out));
-                    int maxPos = 0;
-                    float maxVal = 0;
-                    for (int i = 0; i < out.length; i++) {
-                        if (out[i] > maxVal) {
-                            maxVal = out[i];
+
+                    float[] result = new float[7];
+                    Arrays.fill(result, 0.f);
+                    for (int i = 0; i < 10; i++) {
+                        float[] out = module_classify.forward(IValue.from(feature)).toTensor().getDataAsFloatArray();
+                        for (int j = 0; j < out.length; j++)
+                            result[j] += out[j];
+                    }
+                    for (int j = 0; j < result.length; j++)
+                        result[j] /= 10.f;
+                    System.out.println("Feature vector is " + Arrays.toString(feature.getDataAsFloatArray()));
+                    System.out.println("Result vector is: " + Arrays.toString(result));
+                    int maxPos = 0, secondMaxPos = 0;
+                    float maxVal = 0, secondMaxVal = 0;
+                    for (int i = 0; i < result.length; i++) {
+                        if (result[i] > maxVal) {
+                            secondMaxVal = maxVal;
+                            secondMaxPos = maxPos;
+                            maxVal = result[i];
                             maxPos = i;
+                        } else if (result[i] > secondMaxVal) {
+                            secondMaxVal = result[i];
+                            secondMaxPos = i;
                         }
                     }
+                    System.out.println("Max pos is " + maxPos + " and second max pos is " + secondMaxPos);
                     int finalMaxPos = maxPos;
+                    int finalSecondMaxPos = secondMaxPos;
+                    int maxPercentage = (int)(maxVal * 100);
+                    int secondMaxPercentage = (int)(secondMaxVal * 100);
                     runOnUiThread(() -> {
-                        resultText.setText(oneHotDecode[finalMaxPos]);
+                        resultText.setText(oneHotDecode[finalMaxPos] + " " + maxPercentage + "%");
+                        if (secondMaxPercentage != 0)
+                            resultText2.setText(oneHotDecode[finalSecondMaxPos] + " " + secondMaxPercentage + "%");
                     });
                 });
                 t.start();
